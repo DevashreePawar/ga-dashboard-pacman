@@ -19,6 +19,7 @@ pacman::p_load(
   ,scales        # Visualization scaling tools
   ,gt            # Stylish display tables
   ,gridExtra     # Arrange plots
+  ,googleAnalyticsR  # Google Analytics API
 )
 ```
 
@@ -32,6 +33,65 @@ data <- read.csv(file_path)
 # Convert date columns to Date format
 data$order_date <- as.Date(data$order_date, format = "%m/%d/%Y")
 data$ship_date <- as.Date(data$ship_date, format = "%m/%d/%Y")
+```
+
+```{r}
+#| label: ga-authentication
+#| message: false
+#| warning: false
+
+# Google Analytics authentication
+# Replace with your Measurement ID
+GA_MEASUREMENT_ID <- "G-Y2163YKVWQ"
+
+# Authenticate with Google Analytics using service account credentials
+tryCatch({
+  ga_auth(json_file = "ga-credentials.json")
+}, error = function(e) {
+  message("Note: GA authentication not available. Using demo data.")
+})
+```
+
+```{r}
+#| label: fetch-ga-data
+#| message: false
+#| warning: false
+
+# Try to fetch GA data if authentication successful
+ga_data <- NULL
+is_demo <- FALSE
+
+tryCatch({
+  # Fetch data from the past 30 days
+  ga_data <- google_analytics_4(
+    GA_MEASUREMENT_ID,
+    date_range = c(Sys.Date() - 30, Sys.Date()),
+    metrics = c("activeUsers", "sessions", "screenPageViews"),
+    dimensions = c("country", "deviceCategory", "operatingSystem"),
+    limit = 10000
+  )
+  
+  if (nrow(ga_data) == 0) {
+    is_demo <- TRUE
+    message("No GA data found yet. Using demo data.")
+  }
+}, error = function(e) {
+  message("Note: GA data not available. Using demo data instead.")
+  is_demo <<- TRUE
+})
+
+# Create demo data if GA data not available
+if (is.null(ga_data) || nrow(ga_data) == 0 || is_demo) {
+  ga_data <- tibble(
+    country = c("United States", "Canada", "United Kingdom", "India", "Germany", "Australia", "France", "Japan", "Brazil", "Mexico"),
+    deviceCategory = c("mobile", "desktop", "mobile", "desktop", "tablet", "mobile", "desktop", "mobile", "desktop", "tablet"),
+    operatingSystem = c("Android", "Windows", "iOS", "Windows", "iPadOS", "Android", "Windows", "iOS", "macOS", "iPadOS"),
+    activeUsers = c(145, 320, 87, 156, 42, 98, 203, 71, 134, 56),
+    sessions = c(210, 450, 120, 220, 65, 140, 310, 105, 195, 85),
+    screenPageViews = c(890, 1250, 310, 680, 180, 420, 950, 280, 710, 240)
+  )
+  is_demo <- TRUE
+}
 ```
 
 # Overall Metrics
@@ -175,4 +235,174 @@ ggplot(sales_subcategory, aes(x = reorder(subcategory, total_sales), y = total_s
   labs( x = "Subcategory", y = "Total Sales") +
   theme(axis.text = element_text(size = 36),
         axis.title = element_text(size = 46))
+```
+
+# Website Analytics
+
+```{r}
+#| label: ga-note
+if (is_demo) {
+  cat("**Note:** Displaying demo data. Real Google Analytics data will appear after 24-48 hours of website traffic.")
+}
+```
+
+## Overall Web Metrics
+
+## Row {height="20%" style="display: flex; justify-content: space-evenly; align-items: center;"}
+
+```{r}
+#| content: valuebox
+#| title: "Active Users (Last 30 days)"
+#| title-style: "font-size: 24px; font-weight: bold; text-align: center;"
+
+list(
+  color = "#2ecc71",
+  value = format(sum(ga_data$activeUsers, na.rm = TRUE), big.mark = ","),
+  value_style = "font-size: 30px; font-weight: bold;"
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Total Sessions"
+#| title-style: "font-size: 24px; font-weight: bold; text-align: center;"
+
+list(
+  color = "#2ecc71",
+  value = format(sum(ga_data$sessions, na.rm = TRUE), big.mark = ","),
+  value_style = "font-size: 30px; font-weight: bold;"
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Total Page Views"
+#| title-style: "font-size: 24px; font-weight: bold; text-align: center;"
+
+list(
+  color = "#2ecc71",
+  value = format(sum(ga_data$screenPageViews, na.rm = TRUE), big.mark = ","),
+  value_style = "font-size: 30px; font-weight: bold;"
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Avg. Pages per Session"
+#| title-style: "font-size: 24px; font-weight: bold; text-align: center;"
+
+avg_pages <- if(sum(ga_data$sessions, na.rm = TRUE) > 0) {
+  round(sum(ga_data$screenPageViews, na.rm = TRUE) / sum(ga_data$sessions, na.rm = TRUE), 2)
+} else {
+  0
+}
+
+list(
+  color = "#2ecc71",
+  value = avg_pages,
+  value_style = "font-size: 30px; font-weight: bold;"
+)
+```
+
+## User Demographics
+
+## Row {height="80%"}
+
+### Column {width="50%"} {.tabset}
+
+```{r}
+#| title: Users by Country
+
+ga_country <- ga_data %>%
+  group_by(country) %>%
+  summarize(
+    activeUsers = sum(activeUsers, na.rm = TRUE),
+    sessions = sum(sessions, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(activeUsers)) %>%
+  head(10)
+
+ggplot(ga_country, aes(x = reorder(country, activeUsers), y = activeUsers, fill = country)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Top 10 Countries by Active Users",
+    x = "Country",
+    y = "Active Users"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    title = element_text(size = 16, face = "bold")
+  )
+```
+
+### Column {width="50%"} {.tabset}
+
+```{r}
+#| title: Users by Device Type
+
+ga_device <- ga_data %>%
+  group_by(deviceCategory) %>%
+  summarize(
+    activeUsers = sum(activeUsers, na.rm = TRUE),
+    sessions = sum(sessions, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(activeUsers))
+
+ggplot(ga_device, aes(x = reorder(deviceCategory, activeUsers), y = activeUsers, fill = deviceCategory)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Active Users by Device Type",
+    x = "Device Type",
+    y = "Active Users"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    title = element_text(size = 16, face = "bold"),
+    plot.background = element_rect(fill = "white")
+  )
+```
+
+## Row {height="80%"}
+
+### Column {width="100%"}
+
+```{r}
+#| title: Operating System Distribution
+
+ga_os <- ga_data %>%
+  group_by(operatingSystem) %>%
+  summarize(
+    activeUsers = sum(activeUsers, na.rm = TRUE),
+    sessions = sum(sessions, na.rm = TRUE),
+    screenPageViews = sum(screenPageViews, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(activeUsers)) %>%
+  head(8)
+
+ggplot(ga_os, aes(x = reorder(operatingSystem, activeUsers), y = activeUsers, fill = operatingSystem)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Active Users by Operating System (Top 8)",
+    x = "Operating System",
+    y = "Active Users"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    title = element_text(size = 16, face = "bold")
+  )
 ```

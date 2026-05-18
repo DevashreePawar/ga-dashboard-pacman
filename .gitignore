@@ -6,3 +6,5 @@
 /.quarto/
 ga-credentials.json
 .env
+
+**/*.quarto_ipynb
